@@ -14,8 +14,6 @@ import time
 from datetime import datetime
 import csv
 import argparse
-from sys import exit
-import codecs
 
 # if in Google Colaboratory
 try:
@@ -27,7 +25,10 @@ from gpt_2_simple.src import model, sample, encoder, memory_saving_gradients
 from gpt_2_simple.src.load_dataset import load_dataset, Sampler
 from gpt_2_simple.src.accumulate import AccumulatingOptimizer
 
-tf.compat.v1.disable_eager_execution()
+assert tf.__version__ < '2.0.0', "gpt-2-simple currently does not support " \
+    "TensorFlow 2.0. You'll need to use a virtualenv/cloud computer which " \
+    "has Tensorflow 1.X on it."
+
 
 def download_file_with_progress(url_base, sub_dir, model_name, file_name):
     """General utility for incrementally downloading files from the internet
@@ -40,10 +41,10 @@ def download_file_with_progress(url_base, sub_dir, model_name, file_name):
     file_name : str
         name of file to get e.g. "hparams.json"
     sub_dir: str
-        subdirectory inside which to get and copy locally eg. "models/124M"
+        subdirectory inside which to get and copy locally eg. "models/124M" 
         no trailing slash
     url_base : str
-        Start of URL location specifying server and any base directories no
+        Start of URL location specifying server and any base directories no 
         trailing slash
         e.g. "https://storage.googleapis.com/gpt-2"
     """
@@ -58,7 +59,7 @@ def download_file_with_progress(url_base, sub_dir, model_name, file_name):
             for chunk in r.iter_content(chunk_size=DOWNLOAD_CHUNK_SIZE):
                 f.write(chunk)
                 pbar.update(DOWNLOAD_CHUNK_SIZE)
-
+   
 
 def download_gpt2(model_dir='models', model_name='124M'):
     """Downloads the GPT-2 model into the current directory
@@ -70,8 +71,8 @@ def download_gpt2(model_dir='models', model_name='124M'):
         parent directory of model to download
 
     model_name : str
-        name of the GPT-2 model to download.
-        As of 22 May 2019 one of "124M" or "355M" but may later include other
+        name of the GPT-2 model to download. 
+        As of 22 May 2019 one of "124M" or "355M" but may later include other 
         model sizes
 
     Adapted from https://github.com/openai/gpt-2/blob/master/download_model.py
@@ -86,7 +87,7 @@ def download_gpt2(model_dir='models', model_name='124M'):
     for file_name in ['checkpoint', 'encoder.json', 'hparams.json',
                       'model.ckpt.data-00000-of-00001', 'model.ckpt.index',
                       'model.ckpt.meta', 'vocab.bpe']:
-        download_file_with_progress(url_base="https://openaipublic.blob.core.windows.net/gpt-2",
+        download_file_with_progress(url_base="https://storage.googleapis.com/gpt-2",
                                     sub_dir=sub_dir,
                                     model_name=model_name,
                                     file_name=file_name)
@@ -105,7 +106,7 @@ def start_tf_sess(threads=-1, server=None):
 
     if server is not None:
         return tf.compat.v1.Session(target=server.target, config=config)
-
+    
     return tf.compat.v1.Session(config=config)
 
 
@@ -145,8 +146,7 @@ def finetune(sess,
              use_memory_saving_gradients=False,
              only_train_transformer_layers=False,
              optimizer='adam',
-             overwrite=False,
-             reuse=False):
+             overwrite=False):
     """Finetunes the model on the given dataset.
 
     Adapted from https://github.com/nshepperd/gpt-2/blob/finetuning/train.py.
@@ -185,10 +185,9 @@ def finetune(sess,
             "Can't get samples longer than window size: %s" % hparams.n_ctx)
 
     if model_name not in ['117M', '124M']:
-        print('For larger models, the recommended finetune() parameters are:')
-        print('\tuse_memory_saving_gradients = True')
-        print('\tonly_train_transformer_layers = True')
-        print('\taccumulate_gradients = 1\n')
+        use_memory_saving_gradients = True
+        only_train_transformer_layers = True
+        accumulate_gradients = 1
 
     context = tf.compat.v1.placeholder(tf.int32, [batch_size, None])
     gpus = []
@@ -196,7 +195,7 @@ def finetune(sess,
     if multi_gpu:
         gpus = get_available_gpus()
 
-    output = model.model(hparams=hparams, X=context, gpus=gpus, reuse=reuse)
+    output = model.model(hparams=hparams, X=context, gpus=gpus)
     loss = tf.reduce_mean(
         input_tensor=tf.nn.sparse_softmax_cross_entropy_with_logits(
             labels=context[:, 1:], logits=output['logits'][:, :-1]))
@@ -216,9 +215,6 @@ def finetune(sess,
         opt = tf.compat.v1.train.AdamOptimizer(learning_rate=learning_rate)
     elif optimizer == 'sgd':
         opt = tf.compat.v1.train.GradientDescentOptimizer(learning_rate=learning_rate)
-
-    if tf.__version__ >= '2.0.0' and use_memory_saving_gradients:
-        exit("Memory saving gradients are not implemented for Tensorflow 2 yet.")
 
     if accumulate_gradients > 1:
         if use_memory_saving_gradients:
@@ -304,9 +300,9 @@ def finetune(sess,
                 index += 1
         print(text)
         maketree(os.path.join(SAMPLE_DIR, run_name))
-        with codecs.open(
+        with open(
                 os.path.join(SAMPLE_DIR, run_name,
-                             'samples-{}').format(counter), 'w', 'utf8') as fp:
+                             'samples-{}').format(counter), 'w') as fp:
             fp.write('\n'.join(all_text))
 
     def sample_batch():
@@ -323,7 +319,7 @@ def finetune(sess,
 
     if steps:
         steps = int(steps)
-
+    
     try:
         while True:
             if steps > 0 and counter == (counter_base + steps):
@@ -371,8 +367,7 @@ def load_gpt2(sess,
               checkpoint_dir="checkpoint",
               model_name=None,
               model_dir='models',
-              multi_gpu=False,
-              reuse=False):
+              multi_gpu=False):
     """Loads the model checkpoint or existing model into a TensorFlow session
     for repeated predictions.
     """
@@ -392,7 +387,7 @@ def load_gpt2(sess,
     if multi_gpu:
         gpus = get_available_gpus()
 
-    output = model.model(hparams=hparams, X=context, gpus=gpus, reuse=reuse)
+    output = model.model(hparams=hparams, X=context, gpus=gpus)
 
     if checkpoint=='latest':
         ckpt = tf.train.latest_checkpoint(checkpoint_path)
@@ -427,7 +422,8 @@ def generate(sess,
              temperature=0.7,
              top_k=0,
              top_p=0.0,
-             include_prefix=True):
+             include_prefix=True,
+             split_context=0.5):
     """Generates text from a model loaded into memory.
 
     Adapted from https://github.com/openai/gpt-2/blob/master/src/interactive_conditional_samples.py
@@ -443,6 +439,12 @@ def generate(sess,
     if prefix == '':
         prefix = None
 
+    if not length:
+        assert truncate is not None, "If generating a non-fixed length \
+                sample, must have a truncation term."
+
+    assert 0 < split_context < 1
+
     if model_name:
         checkpoint_path = os.path.join(model_dir, model_name)
     else:
@@ -453,16 +455,28 @@ def generate(sess,
     with open(os.path.join(checkpoint_path, 'hparams.json')) as f:
         hparams.override_from_dict(json.load(f))
 
+    context = tf.compat.v1.placeholder(tf.int32, [batch_size, None])
+
     if prefix:
-        context = tf.compat.v1.placeholder(tf.int32, [batch_size, None])
-        context_tokens = enc.encode(prefix)
+        prefix_enc = enc.encode(prefix)
 
     np.random.seed(seed)
     tf.compat.v1.set_random_seed(seed)
 
     output = sample.sample_sequence(
         hparams=hparams,
-        length=min(length, length - (len(context_tokens) if prefix else 0)),
+        length=min(length, 1023 - (len(prefix_enc) if prefix else 0)),
+        start_token=enc.encoder['<|endoftext|>'] if not prefix else None,
+        context=context if prefix else None,
+        batch_size=batch_size,
+        temperature=temperature, top_k=top_k, top_p=top_p
+    )[:, 1:]
+
+    split_length = int(1023 * split_context)
+    split_output_length = min(length, 1023 - split_length)
+    split_output = sample.sample_sequence(
+        hparams=hparams,
+        length=split_output_length,
         start_token=enc.encoder['<|endoftext|>'] if not prefix else None,
         context=context if prefix else None,
         batch_size=batch_size,
@@ -470,39 +484,82 @@ def generate(sess,
     )[:, 1:]
 
     if destination_path:
-        f = codecs.open(destination_path, 'w', 'utf-8')
+        f = open(destination_path, 'w')
     generated = 0
     gen_texts = []
     while generated < nsamples:
-        if not prefix:
-            out = sess.run(output)
-        else:
-            out = sess.run(output, feed_dict={
-                    context: batch_size * [context_tokens]
-                })
-        for i in range(batch_size):
-            generated += 1
-            gen_text = enc.decode(out[i])
-            if prefix:
-                gen_text = enc.decode(context_tokens[:1]) + gen_text
-            if truncate:
-                truncate_esc = re.escape(truncate)
-                if prefix and not include_prefix:
-                    prefix_esc = re.escape(prefix)
-                    pattern = '(?:{})(.*?)(?:{})'.format(prefix_esc,
-                                                         truncate_esc)
-                else:
-                    pattern = '(.*?)(?:{})'.format(truncate_esc)
+        gen_text = [np.array([])] * batch_size
+        truncated = [False] * batch_size
 
-                trunc_text = re.search(pattern, gen_text, re.S)
-                if trunc_text:
-                    gen_text = trunc_text.group(1)
-            gen_text = gen_text.lstrip('\n')
-            if destination_path:
-                f.write("{}\n{}".format(gen_text, sample_delim))
-            if not return_as_list and not destination_path:
-                print("{}\n{}".format(gen_text, sample_delim), end='')
-            gen_texts.append(gen_text)
+        if prefix:
+            context_tokens = [prefix_enc] * batch_size
+        else: 
+            context_tokens = [[enc.encoder['<|endoftext|>']]] * batch_size
+
+        total_tokens = len(context_tokens[0])
+        generated_once = False
+
+        while False in truncated:
+            num_tokens = 1023 - (len(context_tokens[0]))
+            if generated_once:
+                new_split_output_length = min(length - total_tokens, 1023 - split_length)
+                if new_split_output_length != split_output_length: 
+                    split_output = sample.sample_sequence(
+                        hparams=hparams,
+                        length=new_split_output_length,
+                        start_token=enc.encoder['<|endoftext|>'] if not prefix else None,
+                        context=context if prefix else None,
+                        batch_size=batch_size,
+                        temperature=temperature, top_k=top_k, top_p=top_p
+                    )[:, 1:]
+                out = sess.run(split_output, feed_dict={
+                    context: context_tokens
+                })
+
+            else:
+                out = sess.run(output, feed_dict={
+                    context: context_tokens
+                })
+
+            total_tokens += num_tokens
+            for i in range(batch_size):
+                text = out[i]
+                trunc_text = ""
+                if prefix: 
+                    text = np.append(context_tokens[i][:1], text)
+                if truncate or all(gen_text):
+                    context_tokens[i] = out[i][(1023 - split_length - 1):]
+                    if generated_once:
+                        text = out[i][split_length:]
+
+                    if truncate:
+                        to_trunc = enc.decode(text)
+                        truncate_esc = re.escape(truncate)
+                        if prefix and not include_prefix:
+                            prefix_esc = re.escape(prefix)
+                            pattern = '(?:{})(.*?)(?:{})'.format(prefix_esc,
+                                                                 truncate_esc)
+                        else:
+                            pattern = '(.*?)(?:{})'.format(truncate_esc)
+
+                        trunc_text = re.search(pattern, to_trunc, re.S)
+                        if trunc_text:
+                            text = enc.encode(trunc_text.group(1))
+                            # better to re-encode here then decode every generation cycle, I think
+
+                if not truncated[i]:
+                    gen_text[i] = np.concatenate((gen_text[i], text), axis=None)
+                    if trunc_text or (length is not None and total_tokens >= length-1):
+                        truncated[i] = True
+                        gen = enc.decode(gen_text[i]).lstrip('\n')
+                        if destination_path:
+                            f.write("{}\n{}".format(gen, sample_delim))
+                        if not return_as_list and not destination_path:
+                            print("{}\n{}".format(gen, sample_delim), end='')
+                        gen_texts.append(gen)
+            generated_once = True
+
+        generated += batch_size
 
     if destination_path:
         f.close()
@@ -527,7 +584,8 @@ def generate_to_file(sess,
                      temperature=0.7,
                      top_k=0,
                      top_p=0.0,
-                     include_prefix=True):
+                     include_prefix=True,
+                     split_context=0.5):
     """Generates the texts to a file.
 
     sample_delim separates texts: set to '' if each text is a small document.
@@ -552,7 +610,8 @@ def generate_to_file(sess,
              temperature=temperature,
              top_k=top_k,
              top_p=top_p,
-             include_prefix=include_prefix)
+             include_prefix=include_prefix,
+             split_context=split_context)
 
 
 def mount_gdrive():
@@ -581,7 +640,7 @@ def copy_checkpoint_to_gdrive(run_name='run1', copy_folder=False):
     checkpoint_folder = os.path.join('checkpoint', run_name)
 
     if copy_folder:
-        shutil.copytree(checkpoint_folder, "/content/drive/MyDrive/" + checkpoint_folder)
+        shutil.copytree(checkpoint_folder, "/content/drive/My Drive/" + checkpoint_folder)
     else:
         file_path = get_tarfile_name(checkpoint_folder)
 
@@ -589,7 +648,7 @@ def copy_checkpoint_to_gdrive(run_name='run1', copy_folder=False):
         with tarfile.open(file_path, 'w') as tar:
             tar.add(checkpoint_folder)
 
-        shutil.copyfile(file_path, "/content/drive/MyDrive/" + file_path)
+        shutil.copyfile(file_path, "/content/drive/My Drive/" + file_path)
 
 
 def copy_checkpoint_from_gdrive(run_name='run1', copy_folder=False):
@@ -599,11 +658,11 @@ def copy_checkpoint_from_gdrive(run_name='run1', copy_folder=False):
     checkpoint_folder = os.path.join('checkpoint', run_name)
 
     if copy_folder:
-        shutil.copytree("/content/drive/MyDrive/" + checkpoint_folder, checkpoint_folder)
+        shutil.copytree("/content/drive/My Drive/" + checkpoint_folder, checkpoint_folder)
     else:
         file_path = get_tarfile_name(checkpoint_folder)
 
-        shutil.copyfile("/content/drive/MyDrive/" + file_path, file_path)
+        shutil.copyfile("/content/drive/My Drive/" + file_path, file_path)
 
         with tarfile.open(file_path, 'r') as tar:
             tar.extractall()
@@ -613,14 +672,14 @@ def copy_file_to_gdrive(file_path):
     """Copies a file to a mounted Google Drive."""
     is_mounted()
 
-    shutil.copyfile(file_path, "/content/drive/MyDrive/" + file_path)
+    shutil.copyfile(file_path, "/content/drive/My Drive/" + file_path)
 
 
 def copy_file_from_gdrive(file_path):
     """Copies a file from a mounted Google Drive."""
     is_mounted()
 
-    shutil.copyfile("/content/drive/MyDrive/" + file_path, file_path)
+    shutil.copyfile("/content/drive/My Drive/" + file_path, file_path)
 
 
 def is_gpt2_downloaded(model_dir='models', model_name='124M'):
@@ -675,7 +734,7 @@ def cmd():
     )
 
     # Explicit arguments
-
+    
     parser.add_argument(
         '--mode', help='Mode for using the CLI (either "finetune" or "generate") [Required]', nargs='?')
     parser.add_argument(
@@ -754,6 +813,9 @@ def cmd():
     parser.add_argument(
         '--multi_gpu',  help="[generate/finetune] Attempt to allocate multiple GPUs for running.",
         nargs='?', default=True, type=lambda x: (str(x).lower() == 'true'))
+    parser.add_argument(
+        '--split_context',  help="[generate] When generating a sample longer than 1023 tokens, feed this proportion of previous generation as context.",
+        nargs='?', default=0.5, type=float)
 
     # Positional arguments
     parser.add_argument('mode', nargs='?')
@@ -784,7 +846,8 @@ def cmd():
                      include_prefix=args.include_prefix,
                      sample_delim=args.sample_delim, run_name=args.run_name,
                      checkpoint_dir=args.checkpoint_dir,
-                     top_k=args.top_k, top_p=args.top_p, multi_gpu=args.multi_gpu)
+                     top_k=args.top_k, top_p=args.top_p, multi_gpu=args.multi_gpu,
+                     split_context=args.split_context)
 
 
 def cmd_finetune(dataset, run_name, checkpoint_dir, model_name, model_dir, steps,
@@ -813,7 +876,8 @@ def cmd_generate(nfiles, nsamples, folder,
                  prefix, truncate, include_prefix,
                  sample_delim, run_name,
                  checkpoint_dir,
-                 top_k, top_p, multi_gpu):
+                 top_k, top_p, multi_gpu,
+                 split_context):
     """Wrapper script for generating text via the CLI.
     The files are generated into a folder, which can be downloaded
     recursively by downloading the entire folder.
@@ -845,5 +909,6 @@ def cmd_generate(nfiles, nsamples, folder,
                          include_prefix=include_prefix,
                          sample_delim=sample_delim,
                          top_k=top_k,
-                         top_p=top_p
+                         top_p=top_p,
+                         split_context=split_context
                          )
